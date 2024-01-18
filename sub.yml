@@ -1,0 +1,9 @@
+variables:
+  environment: "test"
+  resource_group_name: ""
+  TFSTATE_RG_NAME: ""
+  TFSTATE_STORAGE_ACCT_NAME: ""
+  TFSTATE_VAULT_NAME: ""
+  subscriptionID: "
+
+  
