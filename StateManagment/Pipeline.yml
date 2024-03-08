@@ -1,0 +1,99 @@
+trigger: none
+
+
+variables:
+- name: "connectionName"
+  value: ""
+
+- name: "TFSTATE_VAULT_NAME"
+  value: ''
+
+- name: "TFSTATE_STORAGE_ACCT_NAME"
+  value: ''
+
+- name: "TFSTATE_RG_NAME"
+  value: ''
+
+- name: "subscriptionID"
+  value: ''
+
+- name: "tenantID"
+  value: ''
+
+- name: "clientObjectID"
+  value: ""
+
+- name: "folder"
+  value: "demo1"
+
+stages:
+  - stage:
+    displayName: Test
+    jobs:
+      - job: Test
+        pool:
+          vmImage: ubuntu-latest
+        displayName: Install Prerequisites
+        steps:
+
+          - task: AzureCLI@2
+            name: TFInit
+            displayName: Terraform_Init
+            inputs:
+              azureSubscription: '$(connectionName)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo Setting Environment Variables
+                echo "##vso[task.setvariable variable=ARM_CLIENT_ID]${{ variables.clientObjectid}}" 
+                clientKey=$(az keyvault secret show --vault-name ${{ variables.TFSTATE_VAULT_NAME}} -n clientSecret --query value -o tsv)
+                echo "##vso[task.setvariable variable=ARM_CLIENT_SECRET]$clientKey"
+                echo "##vso[task.setvariable variable=ARM_SUBSCRIPTION_ID]$(subscriptionID)"
+                echo "##vso[task.setvariable variable=ARM_TENANT_ID]$(tenantID)"
+                echo Getting access key...
+                export ARM_ACCESS_KEY=$(az keyvault secret show --vault-name ${{ variables.TFSTATE_VAULT_NAME}} -n saaccesskey --query value -o tsv)
+                echo Setting Container Name...
+                containerName=$(echo terraformstatemanagementdemo | tr '[:upper:]' '[:lower:]' | tr -s ' ' '-')
+                echo Checking Directoy...
+                cd "$(System.DefaultWorkingDirectory)/StateManagment/${{ variables.folder}}"
+                echo Initializing Terraform...
+                terraform init -input=false \
+                    -backend-config="resource_group_name=${{ variables.TFSTATE_RG_NAME}}" \
+                    -backend-config="storage_account_name=${{ variables.TFSTATE_STORAGE_ACCT_NAME}}" \
+                    -backend-config="container_name=${containerName}" \
+                    -backend-config="key=state.tfstate"
+                echo Creating Terraform Workspace...
+                terraform workspace new ${{ variables.folder }}
+                terraform workspace select ${{ variables.folder }}
+              addSpnToEnvironment: true
+
+          - task: AzureCLI@2
+            name: TFPlan
+            displayName: Terraform_Plan
+            inputs:
+              azureSubscription: '$(connectionName)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: | 
+                echo Checking Directoy...
+                cd "$(System.DefaultWorkingDirectory)/LandingZone/${{ variables.folder}}"
+                find ./ -name .git -prune -o -type f 
+                echo "Checking ${{ variables.folder }} directory..."
+                echo working directory is... $(pwd)
+                echo working directory is... $(ls)
+                echo Running Terraform Plan...
+                terraform plan \
+                -out="$(Build.BuildId)plan.tfplan" -lock=false
+          - task: AzureCLI@2
+            name: TFApply
+            displayName: Terraform_Apply
+            inputs:
+              azureSubscription: '$(connectionName)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |               
+                echo Checking Directory...
+                cd "$(System.DefaultWorkingDirectory)/LandingZone/${{ variables.folder}}"
+                find ./ -name .git -prune -o -type f 
+                cd $(echo ${{ variables.folder}})
+                terraform apply -auto-approve "$(Build.BuildId)plan.tfplan"
